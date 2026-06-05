@@ -1,10 +1,10 @@
 import os
-import sys
 import heapq
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
 import requests
+from dotenv import load_dotenv
 
 from logging_middleware import logger
 
@@ -18,11 +18,11 @@ WEIGHTS = {
 
 def fetch_notifications() -> List[Dict[str, Any]]:
     logger.info("Entering fetch_notifications")
-    token = os.getenv("NOTIFICATION_API_TOKEN")
+    token = os.getenv("ACCESS_TOKEN")
     if not token:
-        logger.error("Missing NOTIFICATION_API_TOKEN environment variable")
+        logger.error("Missing ACCESS_TOKEN environment variable")
         raise RuntimeError(
-            "Missing NOTIFICATION_API_TOKEN env var for the protected API."
+            "Missing ACCESS_TOKEN env var for the protected API."
         )
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -83,7 +83,7 @@ def calculate_priority(notification: Dict[str, Any]) -> int:
 
 def get_top_notifications(
     notifications: List[Dict[str, Any]], k: int = 10
-+) -> List[Tuple[int, Dict[str, Any]]]:
+) -> List[Tuple[int, Dict[str, Any]]]:
     logger.info("Entering get_top_notifications")
     heap: List[Tuple[int, Dict[str, Any]]] = []
 
@@ -92,7 +92,12 @@ def get_top_notifications(
             logger.warning("Skipping invalid notification item")
             continue
 
-        if "ID" not in notif or "Type" not in notif or "Message" not in notif:
+        if (
+            "ID" not in notif
+            or "Type" not in notif
+            or "Message" not in notif
+            or "Timestamp" not in notif
+        ):
             logger.warning("Skipping notification with missing fields")
             continue
 
@@ -111,6 +116,7 @@ def get_top_notifications(
                 )
                 heapq.heapreplace(heap, entry)
 
+        # Min heap keeps only the top k items with O(log k) updates.
     top = sorted(heap, key=lambda x: x[0], reverse=True)
     logger.info("Top %d notifications generated", len(top))
     logger.info("Exiting get_top_notifications")
@@ -121,7 +127,6 @@ def display_notifications(top_notifications: List[Tuple[int, Dict[str, Any]]]) -
     logger.info("Entering display_notifications")
     headers = [
         "Rank",
-        "ID",
         "Type",
         "Message",
         "Timestamp",
@@ -133,7 +138,6 @@ def display_notifications(top_notifications: List[Tuple[int, Dict[str, Any]]]) -
         rows.append(
             [
                 str(idx),
-                str(notif.get("ID", "")),
                 str(notif.get("Type", "")),
                 str(notif.get("Message", "")),
                 str(notif.get("Timestamp", "")),
@@ -160,6 +164,7 @@ def display_notifications(top_notifications: List[Tuple[int, Dict[str, Any]]]) -
 def main() -> int:
     logger.info("Application started")
     try:
+        load_dotenv()
         notifications = fetch_notifications()
         top_notifications = get_top_notifications(notifications, k=10)
         display_notifications(top_notifications)
