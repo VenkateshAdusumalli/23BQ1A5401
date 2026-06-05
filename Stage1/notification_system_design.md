@@ -220,3 +220,80 @@ db.notifications.aggregate([
 
 ## Conclusion
 MongoDB provides the flexibility and performance needed for a notification platform. Its document model, indexing, and horizontal scaling features support high-throughput ingestion and fast user-centric retrieval while remaining resilient as data volume grows.
+
+# Stage 3
+
+## Query Analysis
+The query is logically correct for retrieving unread notifications for a specific student, ordered by newest first. It returns all columns for notifications where `studentID = 1042` and `isRead = false`, sorted by `createdAt` descending.
+
+## Why The Query Is Slow
+- Large table size: 5,000,000 rows increases scan and sort costs.
+- Full table scans: without proper indexes, the database scans most rows.
+- Sorting overhead: ordering by `createdAt` requires sorting large result sets.
+- Missing indexes: no index on `studentID`, `isRead`, and `createdAt` forces a scan.
+- High data volume impact: concurrent reads and writes amplify latency.
+
+## Query Improvements
+Use a projection to retrieve only required columns:
+
+```sql
+SELECT id, studentID, title, message, createdAt
+FROM notifications
+WHERE studentID = 1042
+AND isRead = false
+ORDER BY createdAt DESC;
+```
+
+Selecting fewer columns reduces I/O, memory usage, and network transfer, which improves query latency.
+
+## Index Optimization
+Recommended composite index:
+
+```sql
+CREATE INDEX idx_student_read_created
+ON notifications(studentID, isRead, createdAt DESC);
+```
+
+This index supports:
+- filtering by `studentID`
+- filtering by `isRead`
+- sorting by `createdAt` without an extra sort step
+
+## Computational Cost Analysis
+Without index: $O(N)$ because the engine must scan the table.
+
+With composite index: $O(\log N)$ to locate the matching range, then sequentially read the indexed rows in order.
+
+## Should We Index Every Column?
+Adding indexes on every column is not good practice. It causes:
+- storage overhead
+- slower inserts
+- slower updates
+- slower deletes
+- higher index maintenance costs
+
+Best practice: index only the columns used in frequent filters, joins, and sort operations, and measure query plans before and after changes.
+
+## Placement Notification Query
+PostgreSQL version:
+
+```sql
+SELECT studentID, title, message, createdAt
+FROM notifications
+WHERE notificationType = 'Placement'
+AND createdAt >= NOW() - INTERVAL '7 days'
+ORDER BY createdAt DESC;
+```
+
+MySQL version:
+
+```sql
+SELECT studentID, title, message, createdAt
+FROM notifications
+WHERE notificationType = 'Placement'
+AND createdAt >= NOW() - INTERVAL 7 DAY
+ORDER BY createdAt DESC;
+```
+
+## Conclusion
+The optimal approach is to use selective projections, composite indexes aligned with the query filters and sort order, and avoid excessive indexing. This strategy keeps read latency low while preserving write performance at scale.
