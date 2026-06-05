@@ -387,6 +387,27 @@ This combination reduces database load, improves latency, and scales well with u
 ## Conclusion
 By caching frequent reads, paginating results, pushing real-time updates, and offloading reads to replicas, the system minimizes unnecessary database queries and delivers notifications efficiently at scale.
 
+# Stage 6
+
+## Priority Inbox Approach
+The Priority Inbox ranks unread notifications by a combined score of type weight and recency. Each notification type is assigned a fixed weight (Placement = 3, Result = 2, Event = 1). Recency is used as a tie breaker within the same type, ensuring newer notifications appear first.
+
+## Efficient Top 10 Maintenance
+To avoid sorting the entire list on every refresh, maintain a fixed-size min heap of size 10. As new notifications arrive, calculate their priority score and compare it with the smallest element in the heap:
+- If the heap has fewer than 10 items, push the notification.
+- If the heap is full and the new item ranks higher than the smallest, replace it.
+
+This approach keeps the top 10 in $O(N \log 10)$ time and uses constant memory, which is more efficient than sorting all notifications.
+
+## Handling Continuous Updates
+With streaming updates or frequent polling, each new notification can be processed independently against the heap. This keeps the top 10 up to date without reprocessing the entire dataset. A periodic full refresh can be added to guard against drift or missed events.
+
+## Implementation Notes
+- Fetch notifications from the protected API.
+- Compute priority as weight-dominant score plus timestamp.
+- Use a fixed-size min heap for top 10.
+- Display results in a ranked table for easy review.
+
 # Stage 5
 
 ## Analysis of Current Implementation
