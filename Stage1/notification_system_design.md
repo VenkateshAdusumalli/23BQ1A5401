@@ -386,3 +386,69 @@ This combination reduces database load, improves latency, and scales well with u
 
 ## Conclusion
 By caching frequent reads, paginating results, pushing real-time updates, and offloading reads to replicas, the system minimizes unnecessary database queries and delivers notifications efficiently at scale.
+
+# Stage 5
+
+## Analysis of Current Implementation
+The current loop sends email, writes to the database, and pushes in-app notifications sequentially. This is problematic because it scales poorly, takes a long time for 50,000 students, tightly couples database writes to external email delivery, lacks retries, and introduces single points of failure. A slow or failing email provider blocks the entire process and delays all notifications.
+
+## Failure Scenario
+If `send_email` fails for 200 students, rerunning the entire process is dangerous because it can create duplicate in-app notifications and duplicate database records for the 49,800 students who already succeeded. This makes delivery tracking unreliable and creates inconsistent user experiences. Delivery status tracking is required to safely retry only failed items.
+
+## Reliability Concerns
+The system should support at-least-once delivery with safe retries. That requires idempotency and explicit status tracking for each notification:
+- PENDING
+- PROCESSING
+- SENT
+- FAILED
+
+With these statuses, the system can resume processing, retry failures, and avoid duplicates by checking whether a notification already moved to SENT.
+
+## Improved Architecture
+Use a message queue with worker-based processing in an event-driven architecture. The API enqueues a notification job for each student, and worker processes handle email and in-app delivery asynchronously. RabbitMQ, Kafka, or similar systems provide durable queues, retry handling, and backpressure control, which improves reliability and scalability.
+
+## Should DB Save and Email Send Happen Together?
+No. The database should be the source of truth, and external email delivery should not be part of the same transaction. Notifications should be saved first, then events should be queued. This decouples persistence from delivery and prevents email outages from blocking data writes.
+
+## Revised Pseudocode
+```
+function notify_all(student_ids, message):
+	for student_id in student_ids:
+		notification_id = save_notification(
+			student_id,
+			message,
+			status="PENDING"
+		)
+		publish_queue_message({
+			notification_id: notification_id,
+			student_id: student_id
+		})
+
+worker process_queue_message(msg):
+	update_status(msg.notification_id, "PROCESSING")
+	try:
+		send_email(msg.student_id, message)
+		push_to_app(msg.student_id, message)
+		update_status(msg.notification_id, "SENT")
+	except error:
+		increment_retry_count(msg.notification_id)
+		if retry_count < MAX_RETRIES:
+			requeue(msg)
+		else:
+			update_status(msg.notification_id, "FAILED")
+```
+
+## Tradeoffs
+Advantages:
+- High scalability
+- Reliability
+- Faster execution
+- Failure isolation
+
+Disadvantages:
+- Additional infrastructure
+- Queue management complexity
+- Monitoring requirements
+
+## Conclusion
+Queue-based asynchronous processing is the recommended production approach for large-scale notification delivery because it decouples persistence from delivery, enables safe retries, and scales horizontally without blocking user-facing operations.
