@@ -297,3 +297,92 @@ ORDER BY createdAt DESC;
 
 ## Conclusion
 The optimal approach is to use selective projections, composite indexes aligned with the query filters and sort order, and avoid excessive indexing. This strategy keeps read latency low while preserving write performance at scale.
+
+# Stage 4
+
+## Problem Analysis
+Fetching notifications on every page load creates excessive database load because the same queries are repeatedly executed for each student. This increases database traffic, causes slower response times under concurrency, and limits scalability as the user base and notification volume grow.
+
+## Strategy 1: Caching Using Redis
+A cache-first approach checks Redis before hitting the database. On a cache miss, the API fetches from the database, returns the result, and stores it in the cache. Cache updates occur on create, read, or delete events to keep the cache fresh.
+
+Advantages:
+- reduced database load
+- faster response times
+
+Tradeoffs:
+- additional infrastructure
+- cache invalidation challenges
+- possibility of stale data
+
+## Strategy 2: Pagination
+Limit the number of notifications returned per request.
+
+Example SQL query:
+
+```sql
+SELECT id, studentID, title, message, createdAt
+FROM notifications
+WHERE studentID = 1042
+ORDER BY createdAt DESC
+LIMIT 20 OFFSET 0;
+```
+
+Advantages:
+- reduced query cost
+- lower network usage
+
+Tradeoffs:
+- additional API calls for older notifications
+
+## Strategy 3: Real-Time Notifications
+Use Socket.IO or WebSockets to push notifications to users instead of repeatedly fetching them. The client subscribes to a real-time channel and updates the UI when new notifications arrive.
+
+Advantages:
+- fewer database requests
+- better user experience
+
+Tradeoffs:
+- increased implementation complexity
+- persistent connection management
+
+## Strategy 4: Notification Summary API
+Return only unread notification counts initially, then fetch details on demand.
+
+Example response:
+
+```json
+{
+	"unreadCount": 5
+}
+```
+
+Advantages:
+- smaller payloads
+- reduced database access
+
+Tradeoffs:
+- requires additional endpoint design
+
+## Strategy 5: Read Replicas
+Separate read traffic from write traffic by using read replicas for fetch-heavy workloads.
+
+Advantages:
+- improved scalability
+- better database performance
+
+Tradeoffs:
+- infrastructure cost
+- replication lag
+
+## Recommended Solution
+A hybrid approach provides the best balance for production:
+- Redis caching for hot notification lists and unread counts
+- Pagination to cap payload size and query cost
+- Socket.IO real-time delivery to reduce polling
+- Read replicas to scale read-heavy traffic
+
+This combination reduces database load, improves latency, and scales well with user growth while keeping the user experience responsive.
+
+## Conclusion
+By caching frequent reads, paginating results, pushing real-time updates, and offloading reads to replicas, the system minimizes unnecessary database queries and delivers notifications efficiently at scale.
